@@ -1,5 +1,5 @@
 import unittest
-from src.crypto import *
+from openssl_mcp.crypto import *
 
 class TestCrypto(unittest.TestCase):
     def test_encryption_decryption(self):

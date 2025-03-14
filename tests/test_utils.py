@@ -1,5 +1,5 @@
 import unittest
-from src.utils import *
+from openssl_mcp.utils import *
 import os
 
 class TestUtils(unittest.TestCase):

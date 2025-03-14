@@ -1,30 +1,39 @@
 import os
 import tempfile
+import logging
 from typing import Dict, Any, Optional, List
-from .response import ResponseWrapper
+from .response import ResponseWrapper, SuccessResponse, ErrorResponse, ResponseType
 from .utils import run_openssl_command, is_safe_path
 from .openssl_models import KeyPairConfig, CertificateConfig, CRLConfig, OCSPConfig
 from .openssl_command import OpenSSLCommandBuilder
-from typing import Union
+from pydantic import BaseModel
 
-class CertificateManager:
+class CertificateManager(BaseModel):
+    working_dir: str
+    certs_dir: str
+    keys_dir: str
+    crl_dir: str
+    ocsp_dir: str
+
     def __init__(self, working_dir: str):
         """Initialize CertificateManager with working directory.
         
         Args:
             working_dir: Base directory for all certificate operations
         """
-        self.working_dir = working_dir
-        self.certs_dir = os.path.join(working_dir, "certificates")
-        self.keys_dir = os.path.join(working_dir, "keys")
-        self.crl_dir = os.path.join(working_dir, "crl")
-        self.ocsp_dir = os.path.join(working_dir, "ocsp")
+        super().__init__(
+            working_dir=working_dir,
+            certs_dir=os.path.join(working_dir, "certificates"),
+            keys_dir=os.path.join(working_dir, "keys"),
+            crl_dir=os.path.join(working_dir, "crl"),
+            ocsp_dir=os.path.join(working_dir, "ocsp")
+        )
         
         # Create directories if they don't exist
         for directory in [self.certs_dir, self.keys_dir, self.crl_dir, self.ocsp_dir]:
             os.makedirs(directory, exist_ok=True)
     
-    def generate_key_pair(self, key_name: str, key_type: str = "rsa", key_size: int = 2048) -> Union[SuccessResponse, ErrorResponse]:
+    def generate_key_pair(self, key_name: str, key_type: str = "rsa", key_size: int = 2048) -> ResponseType:
         """Generate a new key pair (private and public keys).
         
         Args:
@@ -55,7 +64,7 @@ class CertificateManager:
         # Generate private key
         command = OpenSSLCommandBuilder.build_key_pair_command(config, self.working_dir)
         result = run_openssl_command(command.args)
-        if not result["success"]:
+        if not result.success:
             return result
         
         # Extract public key from private key
@@ -65,7 +74,7 @@ class CertificateManager:
         )
         
         pub_result = run_openssl_command(pub_command.args)
-        if not pub_result["success"]:
+        if not pub_result.success:
             # Clean up private key if public key generation fails
             os.remove(private_key_path)
             return pub_result
@@ -79,7 +88,7 @@ class CertificateManager:
         )
     
     def create_certificate(self, key_name: str, common_name: str, days: int = 365,
-                          cert_name: str = None, is_ca: bool = False) -> Union[SuccessResponse, ErrorResponse]:
+                          cert_name: Optional[str] = None, is_ca: bool = False) -> ResponseType:
         """Create a certificate using an existing key pair.
         
         Args:
@@ -140,7 +149,7 @@ authorityKeyIdentifier=keyid:always,issuer
 basicConstraints=critical,CA:true
 keyUsage=critical,digitalSignature,cRLSign,keyCertSign
 authorityInfoAccess=OCSP;URI:http://ocsp.example.com
-""")
+''')
             config_path = config_file.name
         
         try:
@@ -152,7 +161,7 @@ authorityInfoAccess=OCSP;URI:http://ocsp.example.com
             )
             
             result = run_openssl_command(command.args)
-            if not result["success"]:
+            if not result.success:
                 return result
             
             return ResponseWrapper.success_response(
@@ -167,7 +176,7 @@ authorityInfoAccess=OCSP;URI:http://ocsp.example.com
                     logging.error(f"Failed to clean up temp file: {e}")
     
     def create_crl(self, ca_key: str, ca_cert: str, serial_numbers: List[str],
-                   days: int = 30, crl_name: str = None) -> Dict[str, Any]:
+                   days: int = 30, crl_name: str = None) -> ResponseType:
         """Create a Certificate Revocation List (CRL).
         
         Args:
@@ -196,41 +205,38 @@ authorityInfoAccess=OCSP;URI:http://ocsp.example.com
         ca_cert_path = os.path.join(self.certs_dir, f"{config.ca_cert}.crt")
         crl_path = os.path.join(self.crl_dir, f"{config.crl_name or config.ca_cert}.crl")
         
-        # Check if CA files exist
+        # Check if required files exist
         if not os.path.exists(ca_key_path):
             return ResponseWrapper.error_response(f"CA private key {config.ca_key}.key does not exist")
         if not os.path.exists(ca_cert_path):
             return ResponseWrapper.error_response(f"CA certificate {config.ca_cert}.crt does not exist")
         
-        # Create a temporary revocation list file
-        with tempfile.NamedTemporaryFile(mode='w', delete=False) as revoke_file:
+        # Create a temporary file for serial numbers
+        with tempfile.NamedTemporaryFile(mode='w', delete=True) as serial_file:
             for serial in config.serial_numbers:
-                revoke_file.write(f"{serial}\n")
-            revoke_path = revoke_file.name
-        
-        try:
+                serial_file.write(f"{serial}\n")
+            serial_file.flush()
+            serial_path = serial_file.name
+            
             # Create CRL
             command = OpenSSLCommandBuilder.build_crl_command(
                 config=config,
                 working_dir=self.working_dir,
-                revoke_path=revoke_path
+                serial_path=serial_path
             )
             
             result = run_openssl_command(command.args)
-            if not result["success"]:
+            if not result.success:
                 return result
             
             return ResponseWrapper.success_response(
                 f"Created CRL: {config.crl_name or config.ca_cert}",
                 {"crl": os.path.relpath(crl_path, self.working_dir)}
             )
-        finally:
-            # Clean up revocation list file
-            os.unlink(revoke_path)
     
     def create_ocsp_response(self, ca_key: str, ca_cert: str, cert_name: str,
                             status: str = "good", revocation_time: str = None,
-                            revocation_reason: int = None) -> Dict[str, Any]:
+                            revocation_reason: int = None) -> ResponseType:
         """Create an OCSP response for a certificate.
         
         Args:
@@ -276,7 +282,7 @@ authorityInfoAccess=OCSP;URI:http://ocsp.example.com
         )
         
         result = run_openssl_command(command.args)
-        if not result["success"]:
+        if not result.success:
             return result
         
         return ResponseWrapper.success_response(

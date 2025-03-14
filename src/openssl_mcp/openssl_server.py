@@ -1,7 +1,7 @@
 from mcp.server.fastmcp import FastMCP
 import os
-from cert_manager import CertificateManager
-from crypto import CryptoManager
+from .cert_manager import CertificateManager
+from .crypto import CryptoManager
 
 from dataclasses import dataclass
 from contextlib import asynccontextmanager
@@ -14,18 +14,18 @@ class AppContext:
 
 @asynccontextmanager
 async def app_lifespan(server: FastMCP) -> AsyncIterator[AppContext]:
-    """管理应用生命周期，提供类型安全的上下文"""
+    """Manage application lifecycle and provide type-safe context"""
     try:
-        # 初始化工作目录和管理器
+        # Initialize working directory and managers
         os.makedirs(WORKING_DIR, exist_ok=True)
         cert_mgr = CertificateManager(WORKING_DIR)
         crypto_mgr = CryptoManager(WORKING_DIR)
         yield AppContext(cert_manager=cert_mgr, crypto_manager=crypto_mgr)
     finally:
-        # 清理资源
+        # Cleanup resources
         pass
 
-# 初始化MCP服务器
+# Initialize MCP server
 mcp = FastMCP(
     name="OpenSSLServer",
     description="A server for certificate management and encryption with OpenSSL",

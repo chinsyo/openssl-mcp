@@ -1,7 +1,7 @@
 import os
 import subprocess
-from typing import List, Dict, Any
-from response import ResponseWrapper
+from typing import List, Dict, Any, Tuple, Union
+from .response import ResponseWrapper, SuccessResponse, ErrorResponse, ResponseType
 
 def is_safe_path(base_path: str, path: str) -> bool:
     """Ensure path stays within working directory.
@@ -17,7 +17,7 @@ def is_safe_path(base_path: str, path: str) -> bool:
     abs_path = os.path.abspath(path)
     return abs_path.startswith(abs_base)
 
-def run_openssl_command(command: List[str]) -> Dict[str, Any]:
+def run_openssl_command(command: List[str]) -> ResponseType:
     """Run OpenSSL command and return structured response.
     
     Args:

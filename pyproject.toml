@@ -1,6 +1,34 @@
 [build-system]
-requires = ["setuptools>=42", "wheel"]
+requires = ["setuptools>=61.0", "wheel"]
 build-backend = "setuptools.build_meta"
+
+[project]
+name = "openssl-mcp"
+version = "0.1.0"
+description = "OpenSSL MCP Project"
+readme = "README.md"
+requires-python = ">=3.12"
+authors = [
+    {name = "Chinsyo" }
+]
+license = {text = "MIT"}
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Intended Audience :: Developers",
+    "License :: OSI Approved :: MIT License",
+    "Operating System :: OS Independent",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.12"
+]
+dependencies = [
+    "mcp[cli]>=0.5.0",
+    "cryptography>=41.0.0",
+    "pyOpenSSL>=23.2.0",
+    "pydantic>=2.0.0",
+]
+
+[project.scripts]
+cert-manager = "openssl_mcp.cert_manager:main"
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
@@ -14,3 +42,11 @@ include = '\.pyi?$'
 [tool.isort]
 profile = "black"
 multi_line_output = 3
+
+[tool.setuptools]
+package-dir = {"" = "src"}
+packages = ["openssl_mcp"]
+
+[project.urls]
+"Homepage" = "https://github.com/chinsyo/openssl-mcp"
+"Bug Tracker" = "https://github.com/chinsyo/openssl-mcp/issues"

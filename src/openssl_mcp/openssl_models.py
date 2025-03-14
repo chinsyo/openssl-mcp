@@ -1,5 +1,5 @@
 from enum import Enum, auto
-from typing import List, Optional, Union
+from typing import List, Optional, Union, Literal
 from pydantic import BaseModel, Field, constr
 
 class KeyType(str, Enum):

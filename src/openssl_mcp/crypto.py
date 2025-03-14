@@ -1,27 +1,35 @@
 import os
 import base64
 import tempfile
-from typing import Dict, Any, Optional, List
-from response import ResponseWrapper
-from utils import run_openssl_command, is_safe_path
+from typing import Dict, Any, Optional, List, Union
+from .response import ResponseWrapper, SuccessResponse, ErrorResponse, ResponseType
+from .utils import run_openssl_command, is_safe_path
+from pydantic import BaseModel
 
-class CryptoManager:
+class CryptoManager(BaseModel):
+    working_dir: str
+    certs_dir: str
+    keys_dir: str
+    files_dir: str
+
     def __init__(self, working_dir: str):
         """Initialize CryptoManager with working directory.
         
         Args:
             working_dir: Base directory for all crypto operations
         """
-        self.working_dir = working_dir
-        self.certs_dir = os.path.join(working_dir, "certificates")
-        self.keys_dir = os.path.join(working_dir, "keys")
-        self.files_dir = os.path.join(working_dir, "files")
+        super().__init__(
+            working_dir=working_dir,
+            certs_dir=os.path.join(working_dir, "certificates"),
+            keys_dir=os.path.join(working_dir, "keys"),
+            files_dir=os.path.join(working_dir, "files")
+        )
         
         # Create directories if they don't exist
         for directory in [self.certs_dir, self.keys_dir, self.files_dir]:
             os.makedirs(directory, exist_ok=True)
     
-    def export_pkcs12(self, key_name: str, cert_name: str = None, password: str = None) -> Dict[str, Any]:
+    def export_pkcs12(self, key_name: str, cert_name: Optional[str] = None, password: Optional[str] = None) -> ResponseType:
         """Export certificate and private key to PKCS12 format.
         
         Args:
@@ -67,7 +75,7 @@ class CryptoManager:
             command.extend(["-nodes"])
         
         result = run_openssl_command(command)
-        if not result["success"]:
+        if not result.success:
             return result
         
         return ResponseWrapper.success_response(
@@ -75,7 +83,7 @@ class CryptoManager:
             {"pkcs12_file": os.path.relpath(pkcs12_path, self.working_dir)}
         )
     
-    def get_supported_ciphers(self) -> Dict[str, Any]:
+    def get_supported_ciphers(self) -> ResponseType:
         """Get a list of supported FIPS-compliant ciphers.
         
         Returns:
@@ -83,7 +91,7 @@ class CryptoManager:
         """
         command = ["openssl", "list", "-cipher-algorithms"]
         result = run_openssl_command(command)
-        if not result["success"]:
+        if not result.success:
             return result
         
         # Filter for FIPS-compliant ciphers
@@ -101,7 +109,7 @@ class CryptoManager:
             {"ciphers": fips_ciphers}
         )
     
-    def encrypt_file(self, input_path: str, recipient_cert: str, output_path: str, cipher: str = "aes-256-gcm") -> Dict[str, Any]:
+    def encrypt_file(self, input_path: str, recipient_cert: str, output_path: str, cipher: str = "aes-256-gcm") -> ResponseType:
         """Encrypt a file using a recipient's certificate and FIPS-compliant cipher.
         
         Args:
@@ -125,7 +133,7 @@ class CryptoManager:
         
         # Validate cipher
         supported_ciphers = self.get_supported_ciphers()
-        if not supported_ciphers["success"]:
+        if not supported_ciphers.success:
             return supported_ciphers
         
         if cipher not in supported_ciphers["data"]["ciphers"]:
@@ -238,15 +246,24 @@ class CryptoManager:
             )
         finally:
             # Clean up temporary files
-            for temp_file in [pubkey_path, symkey_path, iv_path, enc_symkey_path]:
+            # Define a list to store all temporary file paths that need cleanup
+            # Only add to cleanup list when variable is defined
+            if 'symkey_path' in locals():
+                temp_files.append(symkey_path)
+            if 'iv_path' in locals():
+                temp_files.append(iv_path)
+            if 'enc_symkey_path' in locals():
+                temp_files.append(enc_symkey_path)
+            
+            for temp_file in temp_files:
                 try:
                     if os.path.exists(temp_file):
                         os.unlink(temp_file)
                 except Exception:
                     pass
     
-    def decrypt_file(self, input_path: str, key_name: str, encrypted_key: str,
-                     output_path: str, iv: str, cipher: str = "aes-256-gcm") -> Dict[str, Any]:
+    def decrypt_file(self, input_path: str, private_key: str, enc_key_path: str,
+                            output_path: str, iv: str, cipher: str = "aes-256-gcm") -> ResponseType:
         """Decrypt a file using the private key and encrypted symmetric key.
         
         Args:
@@ -261,7 +278,7 @@ class CryptoManager:
             Dictionary containing the operation result
         """
         input_path = input_path.strip()
-        key_name = key_name.strip()
+        private_key = private_key.strip()
         output_path = output_path.strip()
         cipher = cipher.strip().lower()
         
@@ -272,7 +289,7 @@ class CryptoManager:
         
         # Validate cipher
         supported_ciphers = self.get_supported_ciphers()
-        if not supported_ciphers["success"]:
+        if not supported_ciphers.success:
             return supported_ciphers
         
         if cipher not in supported_ciphers["data"]["ciphers"]:
@@ -319,4 +336,33 @@ class CryptoManager:
             ]
             
             dec_symkey_result = run_openssl_command(dec_symkey_command)
-            if not dec
+            if not dec_symkey_result["success"]:
+                return dec_symkey_result
+            
+            # Decrypt the file with the symmetric key using authenticated encryption
+            dec_file_command = [
+                "openssl", "enc",
+                f"-{cipher}",
+                "-d",
+                "-in", full_input_path,
+                "-out", full_output_path,
+                "-K", open(symkey_path, 'rb').read().hex(),
+                "-iv", base64.b64decode(iv).hex()
+            ]
+            
+            dec_file_result = run_openssl_command(dec_file_command)
+            if not dec_file_result["success"]:
+                return dec_file_result
+            
+            return ResponseWrapper.success_response(
+                f"Decrypted file {input_path} to {output_path}",
+                {"decrypted_file": os.path.relpath(full_output_path, self.working_dir)}
+            )
+        finally:
+            # Clean up temporary files
+            for temp_file in [enc_symkey_path, symkey_path]:
+                try:
+                    if os.path.exists(temp_file):
+                        os.unlink(temp_file)
+                except Exception:
+                    pass

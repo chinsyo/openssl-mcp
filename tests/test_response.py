@@ -1,5 +1,5 @@
 import unittest
-from src.response import *
+from openssl_mcp.response import *
 
 class TestResponse(unittest.TestCase):
     def test_success_response(self):

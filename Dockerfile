@@ -1,17 +1,23 @@
-FROM python:3.10-slim
+FROM python:3.12-slim
 
 WORKDIR /app
 
 # Install system dependencies
 RUN apt-get update && apt-get install -y \
-    ffmpeg \
+    openssl \
     && rm -rf /var/lib/apt/lists/*
+
+# Copy requirements first to leverage Docker cache
+COPY requirements.txt .
+
+# Install Python dependencies
+RUN pip install --no-cache-dir -r requirements.txt
 
 # Copy project files
 COPY . .
 
-# Install Python dependencies
-RUN pip install --no-cache-dir -e .
+# Install the package in editable mode
+RUN pip install -e .
 
 # Create directory for certificates
 RUN mkdir -p /app/certs

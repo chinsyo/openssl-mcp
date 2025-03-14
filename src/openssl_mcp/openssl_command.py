@@ -6,6 +6,23 @@ from .openssl_models import (
 )
 from .response import ResponseWrapper
 
+class OpenSSLCommandError(Exception):
+    """OpenSSL command construction error."""
+    pass
+
+def validate_config_path(path: str) -> None:
+    """Validate OpenSSL config file path.
+    
+    Args:
+        path: Path to the config file
+        
+    Raises:
+        ValueError: If path is invalid
+        FileNotFoundError: If file does not exist
+    """
+    if not path or not os.path.isfile(path):
+        raise FileNotFoundError(f"Config file not found: {path}")
+
 class OpenSSLCommandBuilder:
     @staticmethod
     def build_key_pair_command(config: KeyPairConfig, working_dir: str) -> OpenSSLCommand:
@@ -113,8 +130,8 @@ class OpenSSLCommandBuilder:
         if config.status == "revoked":
             args.extend([
                 "-revoked",
-                "-rtime", config.revocation_time,
-                "-reason", str(config.revocation_reason.value)
+                "-rtime", str(config.revocation_time) if config.revocation_time else "",
+                "-reason", str(config.revocation_reason) if config.revocation_reason else ""
             ])
         
         return OpenSSLCommand(command="openssl", args=args)
